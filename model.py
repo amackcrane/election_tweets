@@ -1,119 +1,52 @@
 
-#from keras.models import Model
-#from keras.layers import Input, Dense, Embedding, LSTM
-#from keras.layers import Bidirectional, TimeDistributed
-#from keras.layers import Flatten
+#' ---
+#' title: Text Viz w/ 2016 Election Tweets
+#' output: html_document
+#' ---
+
+
+#+ setup
+
 from sklearn.preprocessing import StandardScaler
-#import keras.backend as K
 #import keras
 
-#import json
-import functools
+
 import scattertext
 import spacy
-from spacy.vectors import Vectors
-from spacy.vocab import Vocab
-from spacy.tokens import Doc
-from spacy.language import Language
-
-from python_version_of_glove_twitter_preprocess_script import tokenize
+import textacy
+from textacy.corpus import Corpus
+from textacy.tm import topic_model
+from textacy.vsm import vectorizers
 
 import os
-for dirname, _, filenames in os.walk('/kaggle/input'):
-    for filename in filenames:
-        #print(os.path.join(dirname, filename))
-        _
-
 #import seaborn as sns
 import numpy as np
 import pandas as pd
+import functools
+import pickle
 
-#nlp = spacy.load("en_core_web_sm")
-nlp = Language(Vocab())
+#+ load, results='show'
 
-############################ F X N S ###########################
-
-
-
-
-###################### T W I T T E R ###########################
-
-# draw in twitter dataz
-path = "../input/election-day-tweets/election_day_tweets.csv"
-
-tw_df = pd.read_csv(path)
+nlp = spacy.load("en_core_web_md")
+print("loaded")
 
 
-tw_df["followers_count"] = tw_df["user.followers_count"]
-tw_df = tw_df.loc[:, ["text", "retweeted", "created_at",
-                      "followers_count", "favorite_count", "retweet_count"]]
+#+ load_data, results='hide'
 
-#print(tw_df.head())
+######### Load Data ##################
 
-#print(tw_df.retweet_count.describe())
-#print(tw_df.favorite_count.describe())
-#print(tw_df.followers_count.describe())
+#with open(".tweets.spacy", "rb") as f:
+#    tweets = pickle.load(f)
 
-# quick filter so this doesn't take forever
-tw_df = tw_df.sample(frac=.02)
-num_samples = tw_df.shape[0]
+tweets = Corpus.load(nlp, ".tweets.spacy")
 
-
-##################### E M B E D D I N G S #################################
-
-# draw in pretrained embeddings
-glove_vectors = pd.read_csv(
-    "../input/glove-global-vectors-for-word-representation/glove.twitter.27B.200d.txt", 
-                      sep=" ", header=None)
-#print(glove_vectors.head())
-
-
-# get vector of words
-keys = list(glove_vectors.iloc[:,0])
-# get embed matrix
-embeddings = np.array(glove_vectors.iloc[:,1:])
-
-# create a vector for unknown stuff
-unk_vector = glove_vectors.sample(300).mean(axis=0)
-# and a zero vector
-zero_vector = np.zeros(embeddings.shape[1])
-
-# add in
-keys.insert(0, "__unk__")
-keys.insert(1, "__zero__")
-embeddings = np.append([unk_vector, zero_vector], embeddings, axis=0)
-
-# slot into spacy
-nlp.vocab = Vocab(strings=keys)
-
-# test
-print(nlp.vocab.strings[1:10])
-
-#vectors = Vectors(data=embeddings, keys=nlp.vocab.strings)
-#nlp.vocab.vectors = vectors
+tw_df = pd.read_pickle(".tweets.df")
 
 
 
+#+ quant, results='hide'
 
-#################### F I N A L    I / O #########################
-
-# tokenize using GloVe syntax
-tweet_text = np.array(tw_df.text.apply(lambda x: tokenize(x).split(" ")))
-
-# create Docs
-docs = Docs()
-max_len = 0
-for twt in tweet_text:
-    tweet_tokens = []
-    for word in twt:
-        try: 
-            tweet_tokens.append(dictionary[word])
-        except KeyError:
-            tweet_tokens.append(dictionary["__unk__"])
-    if len(tweet_tokens) > max_len:
-        max_len = len(tweet_tokens)
-    tokens.append(tweet_tokens)
-
+################ Quant vars ############
 
 followers = np.array(tw_df.followers_count)
 favorites = list(tw_df.favorite_count)
@@ -131,4 +64,60 @@ print(predictand.shape)
 # check
 #sns.heatmap(pd.DataFrame({'fav': favorites, 'fol':followers}).corr(),
 #           annot=True)
-# .15 
+# .15 corr
+
+
+
+#+ analysis
+
+########### Analysis ###############
+
+
+# Show some of the parsed doc/token attributes
+sample = tweets[0][:]
+print(sample.ents)
+print(sample.root)
+
+# lemmas?
+
+# grab some top
+#   named entities
+#   words
+
+# get list of words from vocab
+# orth : freq map
+word_freq = dict()
+# count
+for tw in tweets:
+    for w in tw:
+        try:
+            word_freq[w.orth] += 1
+        except KeyError:
+            word_freq[w.orth] = 1
+
+# filter stop words
+real_words = list(filter(lambda x: not (nlp.vocab[x[0]].is_stop or
+                                        nlp.vocab[x[0]].is_punct or
+                                        nlp.vocab[x[0]].is_space),
+                         word_freq.items()))
+
+# sort
+top_words = sorted(real_words, key=lambda x: x[1], reverse=True)[:50]
+# pull text view
+top_words = list(map(lambda x: nlp.vocab[x[0]].text, top_words))
+print(top_words)
+
+
+# get a list of tf-idf outliers?
+#   no I think we need clusters first...
+# hrm... you could get tf-idf outliers
+#   but here, because docs are so short, that'll just be rare words
+# recall tf-idf is text-wise
+
+# try a k-medoids alg w/ similarity()???
+# actually duh that's a continuous space, use k-means
+
+
+
+
+
