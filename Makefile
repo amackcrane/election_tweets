@@ -2,9 +2,8 @@
 
 vis: model.py .tweets.spacy
 	knitr-spin-py model.py
-	Rscript -e "library(rmarkdown); rmarkdown::render('model.Rmd', output_dir='visualization')"
+	Rscript -e "rmarkdown::render('model.Rmd', output_dir='visualization')"
 	rm model.Rmd
-
 
 script: model.py .tweets.spacy
 	python3 model.py
