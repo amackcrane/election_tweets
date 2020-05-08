@@ -1,12 +1,12 @@
 
 
-vis: model.py .tweets.spacy
-	knitr-spin-py model.py
-	Rscript -e "rmarkdown::render('model.Rmd', output_dir='visualization')"
-	rm model.Rmd
+vis: topic.py .tweets.spacy
+	knitr-spin-py topic.py
+	Rscript -e "rmarkdown::render('topic.Rmd', output_dir='visualization')"
+	rm topic.Rmd
 
-script: model.py .tweets.spacy
-	python3 model.py
+script: topic.py .tweets.spacy
+	python3 topic.py
 
 .tweets.spacy: parse.py election-day-tweets/election-day-tweets.csv
 	python3 parse.py
