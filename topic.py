@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import pickle
+import sys
 
 
 #+ load
@@ -80,14 +81,10 @@ sb = get_clusterer(sb, cachename)
 
 labels = sb.labels
 topics = sb.topics
-top_docs = peek_clusters(tweets, sb, top_n=30)
 
 #' ### Topic Terms
 #+ results='show'
-for cluster,termlist in topics:
-    print(cluster)
-    for term_wt in termlist:
-        print("    " + str(term_wt))
+print_topics(topics, top_n=10)
 
 #' ### Category Breakdown
 #+ results='show'
@@ -95,10 +92,7 @@ print(labels.cluster.describe())
 
 #' ### Inspect Category Exemplars
 #+ results='show'
-for cluster, docs in top_docs.items():
-    print('>>>>>>> ' + str(cluster))
-    for doc in docs:
-        print(">    " + doc.text + '\n')
+peek_clusters(tweets, sb, top_n=20)
 
 #' ### Characteristic Terms
 #+ results='show', warning=FALSE
@@ -109,18 +103,14 @@ print_top_cluster_terms(top_terms_by_cluster(unigrams, labels, 300), 3)
 #' # Soft Clustering Sans idf
 #+
 ssi = Clusterer(hash(tweets), k=2, soft=True, biterm=True, idf=False)
-ssi = get_clusterer(s, cachename)
+ssi = get_clusterer(ssi, cachename)
 
 labels = ssi.labels
 topics = ssi.topics
-top_docs = peek_clusters(tweets, ssi, top_n=30)
 
 #' ### Topic Terms
 #+ results='show'
-for cluster,termlist in topics:
-    print(cluster)
-    for term_wt in termlist:
-        print("    " + str(term_wt))
+print_topics(topics, top_n=10)
 
 #' ### Category Breakdown
 #+ results='show'
@@ -128,10 +118,7 @@ print(labels.cluster.describe())
 
 #' ### Inspect Category Exemplars
 #+ results='show'
-for cluster, docs in top_docs.items():
-    print('>>>>>>> ' + str(cluster))
-    for doc in docs:
-        print(">    " + doc.text + '\n')
+peek_clusters(tweets, ssi, top_n=30)
 
 #' ### Characteristic Terms
 #+ results='show', warning=FALSE
@@ -141,18 +128,14 @@ print_top_cluster_terms(top_terms_by_cluster(unigrams, labels, 300), 3)
 #' # Hard Clustering w/ Biterms
 #+
 hb = Clusterer(hash(tweets), k=2, soft=False, biterm=True, idf=False)
-hb = get_clusterer(hb)
+hb = get_clusterer(hb, cachename)
 
 labels = hb.labels
 topics = hb.topics
-top_docs = peek_clusters(tweets, hb, top_n=10)
 
 #' ### Topic Terms
 #+ results='show'
-for cluster,termlist in topics:
-    print(cluster)
-    for term_wt in termlist:
-        print("    " + str(term_wt))
+print_topics(topics, top_n=10)
 
 #' ### Category Breakdown
 #+ results='show'
@@ -160,10 +143,7 @@ print(labels.cluster.describe())
 
 #' ### Inspect Category Exemplars
 #+ results='show'
-for cluster, docs in top_docs.items():
-    print(cluster)
-    for doc in docs:
-        print("> " + doc.text)
+peek_clusters(tweets, hb, top_n=20)
 
 #' ### Characteristic Terms
 #+ results='show', warning=FALSE

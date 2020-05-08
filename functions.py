@@ -10,33 +10,7 @@ import os
 
 ########### Text Clustering Functions ###############
 
-
-# in: list (tweets) of lists (string words)
-# out: sorted str : freq map
-def most_common(corpus, n, strings=False):
-    word_freq = dict()
-    # count
-    for tw in corpus:
-        for w in tw:
-            try:
-                word_freq[w] += 1
-            except KeyError:
-                word_freq[w] = 1
-    # filter stop words
-    real_words = list(filter(lambda x: not (nlp.vocab[x[0]].is_stop or
-                                            nlp.vocab[x[0]].is_punct or
-                                            nlp.vocab[x[0]].is_space),
-                             word_freq.items()))
-    # normalize freqs
-    tot = len(corpus)
-    real_words = [(word[0], float(word[1] / tot)) for word in real_words]
-    # sort
-    top_words = sorted(real_words, key=lambda x: x[1], reverse=True)[:n]
-    if strings:
-        top_words = [x[0] for x in top_words]
-    # pull text view (already done)
-    #top_words = list(map(lambda x: nlp.vocab[x[0]].text, top_words))
-    return top_words
+# these presume that a spacy model is loaded as 'nlp'...
 
 # _.to_terms_list helper from textacy
 def lower_lemma(token):
@@ -45,6 +19,50 @@ def lower_lemma(token):
 def is_stop(tok):
     return (tok.is_stop or tok.is_punct or tok.is_space or
             lower_lemma(tok) in ["election2016", "rt"])
+
+# in: list (tweets) of lists (string words)
+# out: sorted str : freq map
+def common_words(corpus, n, cond=None, vocab=None, strings=True):
+    if not cond:
+        cond = lambda x: True
+    if vocab:
+        _cond = cond # not trying to recurse!!
+        cond = lambda x: _cond(x) and lower_lemma(x) in vocab
+    word_freq = dict()
+    # count
+    for tw in corpus:
+        for w in tw:
+            # check if interesting
+            if cond(w) and not is_stop(w):
+                try:
+                    word_freq[lower_lemma(w)] += 1
+                except KeyError:
+                    word_freq[lower_lemma(w)] = 1
+    # normalize freqs
+    tot = len(corpus)
+    words = [(word[0], float(word[1] / tot)) for word in word_freq.items()]
+    # sort
+    top_words = sorted(words, key=lambda x: x[1], reverse=True)[:n]
+    if strings:
+        top_words = [x[0] for x in top_words]
+    # pull text view (already done)
+    #top_words = list(map(lambda x: nlp.vocab[x[0]].text, top_words))
+    return top_words
+
+def common_nouns(corpus, n, vocab=None):
+    return common_words(corpus, n, cond=lambda w: w.pos_ == "NOUN", vocab=vocab)
+
+def common_verbs(corpus, n, vocab=None):
+    return common_words(corpus, n, cond=lambda w: w.pos_ == "VERB", vocab=vocab)
+
+def common_objects(corpus, n, vocab=None):
+    return common_words(corpus, n, cond=lambda w: w.dep_ in ("dobj", "pobj", "obj"), vocab=vocab)
+
+def common_roots(corpus, n, vocab=None):
+    return common_words(corpus, n, cond=lambda w: w.dep_ == "ROOT", vocab=vocab)
+
+def common_mentions(corpus, n, vocab=None):
+    return common_words(corpus, n, cond=lambda w: "@" in w.text, vocab=vocab)
 
 # custom biterm grabber
 def get_biterm_lists(corpus):
@@ -68,12 +86,16 @@ def get_biterm_lists(corpus):
     return biterm_lists
 
 # list (along docs) of term lists
-def get_unigram_lists(corpus):
+def get_unigram_lists_depr(corpus):
     return [list(doc._.to_terms_list(ngrams=1, as_strings=True,
                                      normalize=lower_lemma,
                                      filter_stops=True, filter_punct=True,
                                      filter_nums=True,
                                      entities=False))
+            for doc in corpus]
+
+def get_unigram_lists(corpus):
+    return [{lower_lemma(tok) for tok in doc if not is_stop(tok)}
             for doc in corpus]
 
 
@@ -145,11 +167,12 @@ class Clusterer:
 def get_clusterer(clusterer, cachename):
     recompute = False
     # create empty cache file if it doesn't exist
-    if not os.path.exists(cachename):
+    if (not os.path.exists(cachename) or
+        os.stat(cachename).st_size == 0):
         pickle.dump([], open(cachename, 'wb'))
     # Load cache
     with open(cachename, 'rb') as readcache:
-        cache = pickle.load(readcache)
+        cache = pickle.load(readcache) # list of Clusterer
         try:
             # If there's a matching instance in cache, grab it
             # (overridden equality method tests for equality of hyperparams)
@@ -164,7 +187,7 @@ def get_clusterer(clusterer, cachename):
     # If we've computed something new, dump it
     if recompute:
         with open(cachename, 'wb') as writecache:
-            pickle.dump(cluster_cache, writecache)
+            pickle.dump(cache, writecache)
 
     return clusterer
 
@@ -243,7 +266,18 @@ def top_terms_by_cluster(term_list, doc_labels, n_most_common):
     return common_df
 
 
-# For now this just pertains to soft clustering i.e. LDA w/ two topics
+# in: lists of top terms by topic
+# out: lists side by side in data.frame for nice(r) report printing
+def print_topics(topics, top_n=30):
+    # start w/ list of (topic, termlist), where termlist is list of (term, weight)
+    df_dict = {}
+    for top,termlist in topics:
+        df_dict[top] = pd.DataFrame(termlist, columns=['word','weight'])
+        df_dict[top] = df_dict[top].iloc[0:top_n,:]
+    df_concat = pd.concat(df_dict, axis=1, names=['topic'])
+    print(df_concat)
+
+
 # returns topic : spacy_doc_list dict
 def peek_clusters(corpus, clusterer, top_n=3):
     # If this is just soft clustering from topic model...
@@ -264,7 +298,13 @@ def peek_clusters(corpus, clusterer, top_n=3):
     top_topic_docs = {}
     for topic, docs in top_docs.items():
         top_topic_docs[topic] = [corpus[i] for i in docs]
-    return top_topic_docs
+    # make data.frame
+    top_dfs = {}
+    for topic, docs in top_topic_docs.items():
+        texts = [doc.text for doc in docs]
+        top_dfs[topic] = pd.DataFrame(texts, columns=['text'])
+    tops_df = pd.concat(top_dfs, axis=1, names=['cluster'])
+    print(tops_df)
 
 
 # in:
@@ -311,27 +351,19 @@ def print_top_cluster_terms(term_df, top_n):
                                 np.mean([ term_df['freq',n]
                                           for n in other_clusters ],
                                         axis=0))
-    # create vars for words unique to cluster
+    # reshape s.t. we can print a single table?
+    tops = {}
     for c in clusters:
-        other_clusters = np.setdiff1d(clusters, [c])
-        #other_na = term_df.apply(lambda x: , axis=1)
-        other_na = functools.reduce(lambda x,y: x and y,
-                                    [ pd.isna(term_df['freq',oc])
-                                             for oc in other_clusters ])
-        term_df[('unique',c)] = np.where(other_na,
-                                           term_df['freq',c], np.NaN)
-    # print
-    for c in clusters:
-        print("\nCluster " + str(c) + " outliers\n")
-        print(term_df
-              .sort_values(by=('ratio',c), ascending=False)
-              .loc[:,[('word',''), ('ratio',c)]].head(top_n))
-        # meh, vv these vv are misleading & don't contribute much
-        #print("\nCluster " + str(c) + " uniques\n")
-        #print(term_df
-        #      .sort_values(by=('unique',c), ascending=False)
-        #      .loc[:,[('word',''),('freq',c)]].head(top_n))
-
+        tops[c] = (term_df
+                   .sort_values(by=('ratio',c), ascending=False)
+                   .loc[:,[('word',''), ('ratio',c)]]
+                   .head(top_n))
+        # remove cluster level from column multiindex?
+        tops[c].columns = tops[c].columns.droplevel('cluster')
+        # reset row index for naive concatenation
+        tops[c].reset_index(drop=True, inplace=True)
+    print_df = pd.concat(tops, axis=1, names=['Cluster'])
+    print(print_df)
 
 
 
