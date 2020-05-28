@@ -8,7 +8,7 @@ import pickle
 import os
 
 
-########### Text Clustering Functions ###############
+###################################### Term Lists ################################
 
 # these presume that a spacy model is loaded as 'nlp'...
 
@@ -64,7 +64,11 @@ def common_roots(corpus, n, vocab=None):
 def common_mentions(corpus, n, vocab=None):
     return common_words(corpus, n, cond=lambda w: "@" in w.text, vocab=vocab)
 
+def common_descriptors(corpus, n, vocab=None):
+    return common_words(corpus, n, cond=lambda w: w.pos_ in ("ADJ", "ADV"), vocab=vocab)
+
 # custom biterm grabber
+# (for a hackish bastardization of biterm topic model)
 def get_biterm_lists(corpus):
     biterm_lists = []
     unique_biterms = [] # to standardize order of terms in biterms
@@ -98,6 +102,9 @@ def get_unigram_lists(corpus):
     return [{lower_lemma(tok) for tok in doc if not is_stop(tok)}
             for doc in corpus]
 
+
+
+################################ Clustering ########################################
 
 # Class for holding hyperparameters & results for clustering models
 class Clusterer:
@@ -240,6 +247,10 @@ def deprecated_cluster_tweets(corpus, k=2, soft=True, biterm=True, idf=True):
                            'idf': idf}
     return to_return
 
+
+
+
+################################## Visualization ##################################
 
 # in:
 #    term lists along documents
