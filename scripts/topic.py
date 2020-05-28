@@ -21,6 +21,11 @@ import matplotlib.pyplot as plt
 import pickle
 import sys
 
+# fix wd
+path = ""
+if os.path.basename(os.getcwd()) == "scripts":
+    path = "../"
+
 
 #+ load
 
@@ -28,18 +33,19 @@ nlp = spacy.load("en_core_web_md")
 print("loaded")
 
 
+
 #+ load_data
 
 ######### Load Data ##################
 
 
-tweets = Corpus.load(nlp, ".tweets.spacy")
+tweets = Corpus.load(nlp, path+".data/tweets.spacy")
 
 
 #+ quant, eval=FALSE
 
 ################ DON'T USE until filtering fixed in parse.py  ############
-tw_df = pd.read_pickle(".tweets.df")
+tw_df = pd.read_pickle(path+".data/tweets.df") 
 
 followers = np.array(tw_df.followers_count)
 favorites = list(tw_df.favorite_count)
@@ -63,7 +69,7 @@ print(predictand.shape)
 
 # load in functions
 #+ functions
-exec(open('functions.py', 'r').read())
+exec(open(path+'scripts/topic_helpers.py', 'r').read())
 
 
 ################### Specify Models #####################
