@@ -3,6 +3,9 @@
 import time
 import scipy
 import scipy.sparse
+from sklearn.metrics.pairwise import manhattan_distances
+import numpy as np
+import functools
 
 #'
 #' NOTE: these use a lot of global variables defined in graph.py. they may not work in other contexts
@@ -66,6 +69,17 @@ def get_spacy_vectors(words):
         del nlp
     return top_vec
 
+
+# general-use distance dag
+def normalized_manhattan(X):
+    dist = manhattan_distances(X)
+    try:
+        norms = scipy.sparse.linalg.norm(X, axis=1, ord=1)
+    except TypeError:
+        norms = np.linalg.norm(X, axis=1, ord=1)
+    # get matrix of norm sums for all pairs of indices
+    denoms = functools.reduce(lambda x,y: x+y, np.meshgrid(norms, norms))
+    return dist / denoms
 
 
 ########################## Two-mode ####################################
