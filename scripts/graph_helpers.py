@@ -135,7 +135,16 @@ def get_one_mode(user_word):
 
 def convert_to_distances(mat):
     """in place"""
-    mat.data = 1 / mat.data
+    # min-max scale
+    min = np.min(mat.data)
+    max = np.max(mat.data)
+    range = max - min
+    # avoid edge cases
+    min -= range / 1000
+    max += range / 1000
+    # transform
+    mat.data = (mat.data - min) / range
+    mat.data = np.sqrt(-1 * np.log(mat.data))
     
 
 # 10s on n=1500 w/ 170k values (min_df=50, thresh=5)
