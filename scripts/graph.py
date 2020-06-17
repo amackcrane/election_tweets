@@ -307,11 +307,10 @@ layout_dict = nx.drawing.layout.spring_layout(G)
 
 
                                         #+ onemode_plot, results='show'
-# Isomap vs. DIY
 _, ax = plt.subplots(2, 2, figsize=[12,12])
 
 # MDS
-paths = shortest_path(word_word_dist)
+paths = shortest_path(word_word_dist) # TODO dither about this
 plot_embed(paths, mds, ax[0][0], "MDS on Shortest Paths")
 
 # Graph Drawing
