@@ -6,54 +6,12 @@ import scipy.sparse
 from sklearn.metrics.pairwise import manhattan_distances
 import numpy as np
 import functools
+import community as louvain
 
 #'
 #' NOTE: these use a lot of global variables defined in graph.py. they may not work in other contexts
 #' 
 
-############################## Plotting ###############################
-
-# embed using dimensionality reduction model 'reducer', and plot
-def plot_embed(data, reducer, ax, title, filter=True, log=False):
-    global ref_words
-    # dimensionality reduction
-    red_vec = reducer.fit_transform(data)
-    if filter:
-        red_vec = red_vec[reference_indices()]
-    # axis limits
-    x=red_vec[:,0]
-    y=red_vec[:,1]
-    sx=(np.max(x) - np.min(x)) * .1
-    sy=(np.max(y) - np.min(y)) * .1
-    if log:
-        x = np.log(x - np.min(x) + sx)
-        y = np.log(y - np.min(y) + sy)
-    ax.set_xlim(np.min(x) - sx, np.max(x) + sx)
-    ax.set_ylim(np.min(y) - sy, np.max(y) + sy)
-    # plot
-    ax.scatter(red_vec[:,0], red_vec[:,1])
-    for i,w in enumerate(ref_words):
-        ax.annotate(w, red_vec[i])
-    try:
-        ax.set_title(title)
-    except AttributeError:
-        pass
-
-# plot result of networkx layout
-def plot_graph(pos_dict, ax, title):
-    global ref_words
-    # start w/ indices
-    inds = reference_indices()
-    # assume nx identified nodes by matrix index...
-    xy = np.array([pos_dict[i] for i in inds])
-    ax.scatter(xy[:,0], xy[:,1])
-    for i,w in enumerate(ref_words):
-        ax.annotate(w, (xy[i]))
-    try:
-        ax.set_title(title)
-    except AttributeError:
-        pass
-        
 
 ############################### Vectors ####################################
 
@@ -71,12 +29,12 @@ def get_spacy_vectors(words):
 
 
 # general-use distance dag
-def normalized_manhattan(X):
-    dist = manhattan_distances(X)
+def normalized_manhattan(word_user):
+    dist = manhattan_distances(word_user)
     try:
-        norms = scipy.sparse.linalg.norm(X, axis=1, ord=1)
+        norms = scipy.sparse.linalg.norm(word_user, axis=1, ord=1)
     except TypeError:
-        norms = np.linalg.norm(X, axis=1, ord=1)
+        norms = np.linalg.norm(word_user, axis=1, ord=1)
     # get matrix of norm sums for all pairs of indices
     denoms = functools.reduce(lambda x,y: x+y, np.meshgrid(norms, norms))
     return dist / denoms
@@ -85,7 +43,7 @@ def normalized_manhattan(X):
 ########################## Two-mode ####################################
     
 # Fit vectorizer instance (as global 'cv')
-#   Need to re-fit on each corpus considered to avoid out-of-vocab errors
+#   Need to re-fit on each corpus to avoid out-of-vocab errors
 def fit_cv(min_df=1, max_df=1.0, _handles=[]):
     global cv, handles, user_text
     cv.set_params(min_df=min_df, max_df=max_df)
@@ -189,3 +147,82 @@ def reference_indices():
     global cv, ref_words
     common_inds = [cv.vocabulary_[w] for w in ref_words]
     return common_inds
+
+
+#################### Commm Detection ################################
+
+
+# louvain modularity on word-word matrix
+def get_partition(word_word):
+    G = nx.convert_matrix.from_scipy_sparse_matrix(word_word)
+    #tree = louvain.generate_dendrogram(G)
+    part = louvain.best_partition(G)
+    # defaults to getting 'weight' attr from G
+    # invert partition (group ids ordered as word_word)
+    comms = np.full(word_word.shape[:1], -1)
+    for community, nodes in part.entries():
+        for node in nodes:
+            comms[node] = community
+    return comms
+
+
+
+
+
+
+
+############################## Plotting ###############################
+
+# embed using dimensionality reduction model 'reducer', and plot
+def plot_embed(data, reducer, ax, title, filter=True, log=False):
+    global ref_words
+    # dimensionality reduction
+    red_vec = reducer.fit_transform(data)
+    if filter:
+        red_vec = red_vec[reference_indices()]
+    # axis limits
+    x=red_vec[:,0]
+    y=red_vec[:,1]
+    sx=(np.max(x) - np.min(x)) * .1
+    sy=(np.max(y) - np.min(y)) * .1
+    if log:
+        x = np.log(x - np.min(x) + sx)
+        y = np.log(y - np.min(y) + sy)
+    ax.set_xlim(np.min(x) - sx, np.max(x) + sx)
+    ax.set_ylim(np.min(y) - sy, np.max(y) + sy)
+    # plot
+    ax.scatter(red_vec[:,0], red_vec[:,1])
+    for i,w in enumerate(ref_words):
+        ax.annotate(w, red_vec[i])
+    try:
+        ax.set_title(title)
+    except AttributeError:
+        pass
+
+# plot graph-style
+def plot_graph(user_word, mds, ax, title):
+    global ref_words
+    # similarities
+    word_word_sim = get_one_mode(user_word)
+    max_sim = np.amax(word_word_sim.data)
+    # dissimilarities
+    word_word_dist = manhattan_distances(user_word.transpose())
+    # layout
+    word_points = mds.fit_transform(word_word_dist)
+    # indices to filter on
+    inds = reference_indices()
+    # draw edges
+    for inds in np.array(word_word_sim.nonzero()).transpose():
+        # line plot from first to second
+        node_coords = word_points[inds]
+        ax.plot(node_coords[:,0], node_coords[:,1],
+                linewidth=word_word_sim[inds[0], inds[1]]*10/max_sim)
+    # draw nodes
+    ax.scatter(word_points[:,0], word_points[:,1])
+    for i,w in enumerate(ref_words):
+        ax.annotate(w, (word_points[i]))
+    try:
+        ax.set_title(title)
+    except AttributeError:
+        pass
+        
