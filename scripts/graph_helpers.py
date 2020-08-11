@@ -9,7 +9,7 @@ import functools
 import community as louvain
 
 #'
-#' NOTE: these use a lot of global variables defined in graph.py. they may not work in other contexts
+#' NOTE: these use a lot of global variables defined in graph.py. they may not work in other contexts w/o adaptation
 #' 
 
 
@@ -32,6 +32,7 @@ def get_spacy_vectors(words):
 def normalized_manhattan(word_user):
     dist = manhattan_distances(word_user)
     try:
+        # axis=1 for row norms
         norms = scipy.sparse.linalg.norm(word_user, axis=1, ord=1)
     except TypeError:
         norms = np.linalg.norm(word_user, axis=1, ord=1)
@@ -86,9 +87,17 @@ def get_one_mode_binary(user_word, threshold=1):
 
 
 # construct weighted one-mode graph
-def get_one_mode(user_word):
-    word_user = user_word.transpose()
-    word_word = word_user @ user_word
+def get_one_mode(word_user):
+    # for interpretable dot product, normalize words' l2 norms to 1!
+    try:
+        # axis=1 to normalize rows. default to scipy.sparse b/c
+        #   np version will NOT draw error, but rather run out of memory
+        norms = scipy.sparse.linalg.norm(word_user, axis=1, ord=2)
+    except TypeError:
+        norms = np.linalg.norm(word_user, axis=1, ord=2)
+    #epsilon = np.full(word_user.shape, 1e-100)
+    word_user = word_user / norms.reshape(-1, 1)
+    word_word = word_user @ word_user.transpose()
     return word_word
 
 def convert_to_distances(mat):
@@ -139,7 +148,6 @@ def approx_path(word_word, degree):
 def onemode_reference(distances):
     global cv, ref_words
     top_indices = [cv.vocabulary_[w] for w in ref_words]
-    print(top_indices)
     common_dist = distances[top_indices][:,top_indices]
     return common_dist
 
@@ -152,21 +160,55 @@ def reference_indices():
 #################### Commm Detection ################################
 
 
-# louvain modularity on word-word matrix
-def get_partition(word_word):
-    G = nx.convert_matrix.from_scipy_sparse_matrix(word_word)
+# louvain modularity on (weighted) word-word matrix
+def get_louvain_partition(word_word):
+    try:
+        G = nx.convert_matrix.from_numpy_matrix(word_word)
+    except TypeError:
+        G = nx.convert_matrix.from_scipy_sparse_matrix(word_word)
     #tree = louvain.generate_dendrogram(G)
     part = louvain.best_partition(G)
+    # seems to return node:comm mapping
     # defaults to getting 'weight' attr from G
     # invert partition (group ids ordered as word_word)
     comms = np.full(word_word.shape[:1], -1)
-    for community, nodes in part.entries():
-        for node in nodes:
-            comms[node] = community
+    for node, community in part.items():
+        comms[node] = community
     return comms
 
 
+# doesn't make sense ATMO
+def _sparsify(word_user):
+    expected = scipy.stats.contingency.expected_freq(word_user.todense())
+    # TODO TODO converts to dense! there should be a better way!
+    word_user = word_user - expected
+    word_user = scipy.sparse.csr_matrix(word_user)
+    word_user.data = np.where(np.less(word_user.data, 0), 0, word_user.data)
+    word_user.eliminate_zeros()
+    return word_user
 
+# may only be feasible on truncated wordlist!!
+def sparsify(keyword_similarities):
+    key_sim = keyword_similarities.copy()
+    # ones on diagonal throw this off?
+    if key_sim[0,0] > 0:
+        key_sim = key_sim - np.identity(key_sim.shape[0])
+    # iterate through positive entries
+    n = key_sim.shape[0]
+    total = np.sum(key_sim)
+    rowtot = np.sum(key_sim, axis=1)
+    for i in range(n):
+        for j in range(i+1,n):
+            n_ij = key_sim[i,j]
+            n_i = rowtot[i,0]
+            n_j = rowtot[j,0]
+            submatrix = np.matrix([[n_ij, n_j], [n_i, total]])
+            _,p = scipy.stats.fisher_exact(submatrix)
+            print(p)
+            if p>.05:
+                key_sim[i,j] = 0
+                key_sim[j,i] = 0
+    return key_sim
 
 
 
@@ -199,30 +241,32 @@ def plot_embed(data, reducer, ax, title, filter=True, log=False):
     except AttributeError:
         pass
 
-# plot graph-style
-def plot_graph(user_word, mds, ax, title):
+# render as weighted similarity graph
+def plot_graph(word_sim, word_diff, mds, ax, title, filter=True):
     global ref_words
+    if filter:
+        # ATMO we don't care about involving unvisualized nodes in layout
+        inds = reference_indices()
+        word_sim = word_sim[inds][:,inds]
+        word_diff = word_diff[inds][:,inds]
     # similarities
-    word_word_sim = get_one_mode(user_word)
-    max_sim = np.amax(word_word_sim.data)
-    # dissimilarities
-    word_word_dist = manhattan_distances(user_word.transpose())
+    sim_scale = np.mean(word_sim.data)
+    # cluster on similarities
+    cluster = get_louvain_partition(word_sim)
     # layout
-    word_points = mds.fit_transform(word_word_dist)
-    # indices to filter on
-    inds = reference_indices()
+    word_points = mds.fit_transform(word_diff)
     # draw edges
-    for inds in np.array(word_word_sim.nonzero()).transpose():
+    for inds in np.array(word_sim.nonzero()).transpose():
         # line plot from first to second
         node_coords = word_points[inds]
-        ax.plot(node_coords[:,0], node_coords[:,1],
-                linewidth=word_word_sim[inds[0], inds[1]]*10/max_sim)
+        ax.plot(node_coords[:,0], node_coords[:,1], c='gray', zorder=-1,
+                linewidth=word_sim[inds[0], inds[1]]*2/sim_scale)
     # draw nodes
-    ax.scatter(word_points[:,0], word_points[:,1])
+    ax.scatter(word_points[:,0], word_points[:,1], c=cluster, zorder=1)
     for i,w in enumerate(ref_words):
         ax.annotate(w, (word_points[i]))
     try:
         ax.set_title(title)
     except AttributeError:
         pass
-        
+
