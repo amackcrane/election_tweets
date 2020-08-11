@@ -35,7 +35,7 @@ import spacy
 from sklearn.manifold import TSNE, MDS, Isomap, SpectralEmbedding
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_distances, euclidean_distances, manhattan_distances
-from sklearn.decomposition import TruncatedSVD
+from sklearn.decomposition import TruncatedSVD, PCA
 from sklearn.preprocessing import normalize
 from textacy.corpus import Corpus
 from umap import UMAP
@@ -123,19 +123,21 @@ print(ref_words)
                                         #+ plot_vec, results='show'
 
 top_vec = get_spacy_vectors(ref_words)
-top_cos = cosine_distances(top_vec)
+top_vec_diff = cosine_distances(top_vec)
+top_vec_sim = np.full(top_vec_diff.shape, 2) - top_vec_diff
 
-tsne = TSNE(perplexity=5, metric='precomputed')
+
+
+#tsne = TSNE(perplexity=5, metric='precomputed')
 mds = MDS(dissimilarity='precomputed', random_state=100)
-umap = UMAP(metric='precomputed')
-svd = TruncatedSVD(algorithm='arpack')
+pca = PCA(n_components=2)
+#umap = UMAP(metric='precomputed')
+#svd = TruncatedSVD(algorithm='arpack')
 
-_, ax = plt.subplots(2,2, figsize=(12,12))
+_, ax = plt.subplots(1,2, figsize=(12,7))
 
-plot_embed(top_cos, tsne, ax[0][0], "t-SNE", filter=False)
-plot_embed(top_cos, mds, ax[0][1], "MDS", filter=False)
-plot_embed(top_cos, umap, ax[1][0], "UMAP", filter=False)
-plot_embed(top_vec, svd, ax[1][1], "SVD (on plain data)", filter=False)
+plot_embed(top_vec, pca, ax[0], "PCA", filter=False)
+plot_graph(top_vec_sim, top_vec_diff, mds, ax[1], "MDS -- graph", filter=False)
 
 plt.show()
 
@@ -155,18 +157,18 @@ plt.show()
 #' (using MDS)
 #' 
 
-top_euclid = euclidean_distances(top_vec)
-top_manh = manhattan_distances(top_vec)
-top_manh_norm = normalized_manhattan(top_vec)
+#top_euclid = euclidean_distances(top_vec)
+#top_manh = manhattan_distances(top_vec)
+#top_manh_norm = normalized_manhattan(top_vec)
 
-_, ax = plt.subplots(2,  2, [12,12])
+#_, ax = plt.subplots(2,  2, [12,12])
 
-plot_embed(top_euclid, mds, ax[0][0], "Euclidean", filter=False)
-plot_embed(top_cos, mds, ax[0][1], "Cosine", filter=False)
-plot_embed(top_manh, mds, ax[1][0], "Manhattan", filter=False)
-plot_embed(top_manh_norm, mds, ax[1][1], "Normalized Manhattan", filter=False)
+#plot_embed(top_euclid, mds, ax[0][0], "Euclidean", filter=False)
+#plot_embed(top_cos, mds, ax[0][1], "Cosine", filter=False)
+#plot_embed(top_manh, mds, ax[1][0], "Manhattan", filter=False)
+#plot_embed(top_manh_norm, mds, ax[1][1], "Normalized Manhattan", filter=False)
 
-plt.show()
+#plt.show()
 
 #'
 #' 
@@ -226,7 +228,7 @@ plt.show()
                                         #+ twomode_setup
 
 
-cv = TfidfVectorizer(analyzer = lambda x: x)
+cv = CountVectorizer(analyzer = lambda x: x)
 
 fit_cv(min_df=30)  # was 10
 ref_inds = reference_indices()
@@ -234,19 +236,24 @@ ref_inds = reference_indices()
 
 word_user = get_matrix(handles).transpose()
 word_user_rec = get_matrix(rec_handles).transpose()
-word_cos = cosine_distances(word_user)
-word_cos_rec = cosine_distances(word_user_rec)
-word_manh = normalized_manhattan(word_user)
-word_manh_rec = normalized_manhattan(word_user_rec)
+word_sim = get_one_mode(word_user) #SLOW
+word_diff = normalized_manhattan(word_user)
+word_sim_rec = get_one_mode(word_user_rec)
+word_diff_rec = normalized_manhattan(word_user_rec)
+
+#word_cos = cosine_distances(word_user)
+#word_cos_rec = cosine_distances(word_user_rec)
+#word_manh = normalized_manhattan(word_user)
+#word_manh_rec = normalized_manhattan(word_user_rec)
 
 #'
-#' ### MDS on cosine distance
+#' ### Compare word relations w/r/t usage by all vs. recurrent handles
 #' 
                                         #+ twomode_plot, results='show'
 _, ax = plt.subplots(1,2, figsize=(12,7))
 
-plot_embed(word_cos, mds, ax[0], "All Handles")
-plot_embed(word_cos_rec, mds, ax[1], "Recurring Handles")
+plot_graph(word_sim, word_diff, mds, ax[0], "All Handles")
+plot_graph(word_sim_rec, word_diff_rec, mds, ax[1], "Recurring Handles")
 
 plt.show()
 
@@ -255,12 +262,12 @@ plt.show()
 #'
                                         #+ twomode_dist, results='show'
 
-_, ax = plt.subplots(1,2, figsize=[12,7])
+#_, ax = plt.subplots(1,2, figsize=[12,7])
 
-plot_embed(word_cos, mds, ax[0], "Cosine on All Handles")
-plot_embed(word_manh, mds, ax[1], "Normalized Manhattan on All Handles")
+#plot_embed(word_cos, mds, ax[0], "Cosine on All Handles")
+#plot_embed(word_manh, mds, ax[1], "Normalized Manhattan on All Handles")
 
-plt.show()
+#plt.show()
 
 
 #'
@@ -271,56 +278,6 @@ plt.show()
 #'
 #' In addition to looking at the handle-word matrix as such, we can see this matrix of co-occurrences between words and users as implying a network of relations among words [@Breiger1974], following the "distributional" assumption that co-occurring words are similar^[Of course, following our interest in different scales of social variance, we must elaborate at some point what kind of similarity we infer from co-occurrence.].
 #' 
-
-                                        #+ onemode_setup
-
-# switch back to counts -- more meaningful when we're trying to relate words via walks...
-cv = CountVectorizer(analyzer = lambda x: x)
-
-
-# Setup
-which_handles = handles
-fit_cv(min_df=30, _handles=which_handles)
-
-user_word = get_matrix(which_handles)
-word_word = get_one_mode(user_word) # counts of two-step paths
-word_word_bin = get_one_mode_binary(user_word, threshold=5)
-word_word_dist = word_word.copy()
-convert_to_distances(word_word_dist) # "distance" as inverse of path count
-
-#'
-#'
-#' I think both of these methods are sort of confused, because taking distance as 'inverse of co-occurrence rate' is unlikely to yield a coherent set of distances, nor a situation where shortest path length is meaningful. We might inspect
-#'
-#' * MDS on this distance-as-inverse-co-occurence metric
-#' * see what kind of variance we have in distance and shortest path length
-#'
-#' We could also see how these compare with the unweighted graph method at different thresholds..
-#'
-
-
-                                        #+ setup_nx, results='show'
-
-# SLOW
-G = nx.convert_matrix.from_numpy_array(word_word_bin.todense())
-layout_dict = nx.drawing.layout.spring_layout(G)
-
-
-                                        #+ onemode_plot, results='show'
-_, ax = plt.subplots(2, 2, figsize=[12,12])
-
-# MDS
-paths = shortest_path(word_word_dist) # TODO dither about this
-plot_embed(paths, mds, ax[0][0], "MDS on Shortest Paths")
-
-# Graph Drawing
-plot_graph(layout_dict, ax[0][1], "Spring Layout of Binarized Graph")
-
-# spectral embed
-spec = SpectralEmbedding(affinity="precomputed")
-plot_embed(word_word, spec, ax[1][0], "Spectral Embedding")
-
-plt.show()
 
 
 
