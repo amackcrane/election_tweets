@@ -75,7 +75,8 @@ tweets = temp
                                         #+ unigrams
 
 # grab a list of interesting words
-unigrams = get_unigram_lists(tweets)
+binary=False
+unigrams = get_unigram_lists(tweets, binary=binary)
 #n_top = 50
 #ref_words = common_words(tweets, n_top)
 
@@ -124,7 +125,12 @@ print(ref_words)
 
 top_vec = get_spacy_vectors(ref_words)
 top_vec_diff = cosine_distances(top_vec)
-top_vec_sim = np.full(top_vec_diff.shape, 2) - top_vec_diff
+# non-negative vectors have nonnegative cosine distances
+if np.amin(top_vec_diff) >= 0:
+    top_vec_sim = 1 - top_vec_diff
+else:
+    # but word vectors may be negative?
+    top_vec_sim = 2 - top_vec_diff
 
 
 
@@ -205,7 +211,10 @@ for i in range(tw_df.shape[0]):
     if not handle in user_text:
         user_text[handle] = text
     else:
-        user_text[handle].update(text)
+        if binary:
+            user_text[handle].update(text)
+        else:
+            user_text[handle].extend(text)
 
 handles = user_text.keys()
 
@@ -250,12 +259,31 @@ word_diff_rec = normalized_manhattan(word_user_rec)
 #' ### Compare word relations w/r/t usage by all vs. recurrent handles
 #' 
                                         #+ twomode_plot, results='show'
-_, ax = plt.subplots(1,2, figsize=(12,7))
+#_, ax = plt.subplots(1,2, figsize=(12,7))
 
-plot_graph(word_sim, word_diff, mds, ax[0], "All Handles")
-plot_graph(word_sim_rec, word_diff_rec, mds, ax[1], "Recurring Handles")
-
+_, ax = plt.subplots(figsize=(12,8))
+plot_graph(word_sim, word_diff, mds, plt, "All Handles")
 plt.show()
+_,ax = plt.subplots(figsize=(12,8))
+plot_graph(word_sim_rec, word_diff_rec, mds, plt, "Recurring Handles")
+plt.show()
+
+#'
+#' Let's make clusters explicit, since they're kind of hard to see
+#'
+#' All handles:
+#' 
+
+
+                                        #+ print_clusters, results='show'
+print_louvain(word_sim)
+
+#'
+#' Recurring Handles:
+#' 
+                                        #+ print_cluster_rec, results='show'
+print_louvain(word_sim_rec)
+
 
 #'
 #' ### Metric Comparison
