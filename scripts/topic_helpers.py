@@ -98,9 +98,14 @@ def get_unigram_lists_depr(corpus):
                                      entities=False))
             for doc in corpus]
 
-def get_unigram_lists(corpus):
-    return [{lower_lemma(tok) for tok in doc if not is_stop(tok)}
-            for doc in corpus]
+# originally created (I suspect?) to enforce binary term frequencies; now permits both
+def get_unigram_lists(corpus, binary=True):
+    if binary:
+        return [{lower_lemma(tok) for tok in doc if not is_stop(tok)}
+                for doc in corpus]
+    else:
+        return [[lower_lemma(tok) for tok in doc if not is_stop(tok)]
+                for doc in corpus]
 
 
 
