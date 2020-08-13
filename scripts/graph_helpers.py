@@ -16,6 +16,7 @@ import community as louvain
 ############################### Vectors ####################################
 
 # grab vectors from spacy
+# caching to avoid recomputation
 def get_spacy_vectors(words):
     try:
         top_vec = np.load(path+".data/top_vec")
@@ -41,49 +42,49 @@ def normalized_manhattan(word_user):
     return dist / denoms
 
 
-########################## Two-mode ####################################
+########################## Matrix Construction ####################################
     
 # Fit vectorizer instance (as global 'cv')
 #   Need to re-fit on each corpus to avoid out-of-vocab errors
-def fit_cv(min_df=1, max_df=1.0, _handles=[]):
-    global cv, handles, user_text
+#   - but not when it's a subset of what it's trained on??
+def fit_cv(cv, user_text, handles, min_df=1, max_df=1.0):
     cv.set_params(min_df=min_df, max_df=max_df)
-    # If _handles omitted, this is fit on the global data
-    if len(_handles) == 0:
-        _handles = handles
-    cv.fit([user_text[h] for h in _handles])
+    cv.fit([user_text[h] for h in handles])
+    return cv
 
 # Note 'cv' must have analyzer=lambda x: x; it defaults to tokenizing/lemmatizing etc. itself
-def get_matrix(handles):
-    global cv, user_text
+def get_matrix(handles, user_text, cv):
     word_bags = [user_text[h] for h in handles]
     user_word = cv.transform(word_bags)
     return user_word
 
+# list of handles w/ more than 'min_ct' tweets in dataset
+def get_recurring_handles(tw_df, min_ct):
+    rec_handles = pd.DataFrame({'count': tw_df.handle.value_counts()})
+    rec_handles['handle'] = rec_handles.index
+    rec_handles = rec_handles.query(f'count >= {min_ct}').handle.values
+    return rec_handles
 
-def twomode_reference(user_word):
-    global cv, ref_words
-    voc = cv.vocabulary_
-    word_user = user_word.transpose()
-    common_word_user = [word_user[voc[w]].toarray() for w in ref_words]
-    common_word_user = np.array(common_word_user).reshape(len(ref_words), -1)
-    return common_word_user
+# get handle: wordlist dict
+# see topic_helpers::get_unigram_lists for sense of 'binary'
+def word_bags_by_handle(unigrams, tw_df, binary):
+    user_text = {}
+    for i in range(tw_df.shape[0]):
+        handle = tw_df["handle"].iloc[i]
+        text = unigrams[i]
+        if not handle in user_text:
+            user_text[handle] = text
+        else:
+            if binary:
+                user_text[handle].update(text)
+            else:
+                user_text[handle].extend(text)
+    return user_text
+
 
 
 
 ######################### Graph Functions ###############################
-
-# unweighted one-mode graph
-def apply_threshold(mat, thresh):
-    """In-place"""
-    mat.data = np.where(np.less(mat.data, thresh), 0, 1)
-def get_one_mode_binary(user_word, threshold=1):
-    word_user = user_word.transpose()
-    word_word = word_user @ user_word
-    # make binary
-    apply_threshold(word_word, threshold)
-    word_word.eliminate_zeros()
-    return word_word
 
 
 # construct weighted one-mode graph
@@ -100,61 +101,6 @@ def get_one_mode(word_user):
     word_word = word_user @ word_user.transpose()
     return word_word
 
-def convert_to_distances(mat):
-    """in place"""
-    # min-max scale
-    min = np.min(mat.data)
-    max = np.max(mat.data)
-    range = max - min
-    # avoid edge cases
-    min -= range / 1000
-    max += range / 1000
-    # transform
-    mat.data = (mat.data - min) / range
-    mat.data = np.sqrt(-1 * np.log(mat.data))
-    
-
-# 10s on n=1500 w/ 170k values (min_df=50, thresh=5)
-# 25s on n=5000 w/ 55k values
-# 5s on n=1100 w/ 140k
-def shortest_path(word_word):
-    print("shape: " + str(word_word.shape))
-    print("nonzero: " + str(word_word.nnz))
-    start = time.time()
-    paths = scipy.sparse.csgraph.shortest_path(word_word, directed=False, method='D')
-    # output should be dense...
-    vmax = np.max(np.where(np.isfinite(paths), paths, 0))
-    paths = np.where(np.isinf(paths), vmax, paths)
-    print("time: " + str(time.time() - start))
-    return paths
-
-def approx_path(word_word, degree):
-    """Approximate path length by inverting # of walks up to a given degree"""
-    walks = word_word
-    # Note the word-word matrix will have ones on diagonal
-    #   so exponentiating gives cumulative walks up to length 'degree'
-    for d in range(degree-1):
-        walks = walks @ (word_word / (d+1))
-    # convert to dense
-    walks = walks.todense()
-    # invert (leaving absent paths as 0)
-    dists = np.where(np.isclose(walks, 0), 0, 1 / walks)
-    # scale and recode
-    vmax = np.max(walks)
-    vmean = np.mean(walks)
-    dists = np.where(np.isclose(walks, 0), vmax / vmean, walks / vmean)
-    return dists
-
-def onemode_reference(distances):
-    global cv, ref_words
-    top_indices = [cv.vocabulary_[w] for w in ref_words]
-    common_dist = distances[top_indices][:,top_indices]
-    return common_dist
-
-def reference_indices():
-    global cv, ref_words
-    common_inds = [cv.vocabulary_[w] for w in ref_words]
-    return common_inds
 
 
 #################### Commm Detection ################################
@@ -298,3 +244,94 @@ def plot_graph(word_sim, word_diff, mds, ax, title, filter=True):
     except AttributeError:
         pass
 
+
+
+
+
+
+########################### to delete ################################
+
+
+
+def twomode_reference(user_word):
+    global cv, ref_words
+    voc = cv.vocabulary_
+    word_user = user_word.transpose()
+    common_word_user = [word_user[voc[w]].toarray() for w in ref_words]
+    common_word_user = np.array(common_word_user).reshape(len(ref_words), -1)
+    return common_word_user
+
+
+
+
+
+
+# unweighted one-mode graph
+def apply_threshold(mat, thresh):
+    """In-place"""
+    mat.data = np.where(np.less(mat.data, thresh), 0, 1)
+def get_one_mode_binary(user_word, threshold=1):
+    word_user = user_word.transpose()
+    word_word = word_user @ user_word
+    # make binary
+    apply_threshold(word_word, threshold)
+    word_word.eliminate_zeros()
+    return word_word
+
+def convert_to_distances(mat):
+    """in place"""
+    # min-max scale
+    min = np.min(mat.data)
+    max = np.max(mat.data)
+    range = max - min
+    # avoid edge cases
+    min -= range / 1000
+    max += range / 1000
+    # transform
+    mat.data = (mat.data - min) / range
+    mat.data = np.sqrt(-1 * np.log(mat.data))
+    
+
+
+
+# 10s on n=1500 w/ 170k values (min_df=50, thresh=5)
+# 25s on n=5000 w/ 55k values
+# 5s on n=1100 w/ 140k
+def shortest_path(word_word):
+    print("shape: " + str(word_word.shape))
+    print("nonzero: " + str(word_word.nnz))
+    start = time.time()
+    paths = scipy.sparse.csgraph.shortest_path(word_word, directed=False, method='D')
+    # output should be dense...
+    vmax = np.max(np.where(np.isfinite(paths), paths, 0))
+    paths = np.where(np.isinf(paths), vmax, paths)
+    print("time: " + str(time.time() - start))
+    return paths
+
+def approx_path(word_word, degree):
+    """Approximate path length by inverting # of walks up to a given degree"""
+    walks = word_word
+    # Note the word-word matrix will have ones on diagonal
+    #   so exponentiating gives cumulative walks up to length 'degree'
+    for d in range(degree-1):
+        walks = walks @ (word_word / (d+1))
+    # convert to dense
+    walks = walks.todense()
+    # invert (leaving absent paths as 0)
+    dists = np.where(np.isclose(walks, 0), 0, 1 / walks)
+    # scale and recode
+    vmax = np.max(walks)
+    vmean = np.mean(walks)
+    dists = np.where(np.isclose(walks, 0), vmax / vmean, walks / vmean)
+    return dists
+
+def onemode_reference(distances):
+    global cv, ref_words
+    top_indices = [cv.vocabulary_[w] for w in ref_words]
+    common_dist = distances[top_indices][:,top_indices]
+    return common_dist
+
+def reference_indices():
+    global cv, ref_words
+    common_inds = [cv.vocabulary_[w] for w in ref_words]
+    return common_inds

@@ -198,24 +198,10 @@ tw_df.handle.value_counts().hist(bins=100)
 tw_df.handle.value_counts().where(lambda x: x > 2, np.nan).hist(bins=100)
 # around 2000 (from 100k)
 # pull out recurring handles:
-rec_handles = pd.DataFrame({'count': tw_df.handle.value_counts()})
-rec_handles['handle'] = rec_handles.index
-rec_handles = rec_handles.query('count > 2').handle.values
+rec_handles = get_recurring_handles(tw_df, 3)
 
-
-# handle-word matrix
-user_text = {}
-for i in range(tw_df.shape[0]):
-    handle = tw_df["handle"].iloc[i]
-    text = unigrams[i]
-    if not handle in user_text:
-        user_text[handle] = text
-    else:
-        if binary:
-            user_text[handle].update(text)
-        else:
-            user_text[handle].extend(text)
-
+# word bags by handle
+user_text = word_bags_by_handle(unigrams, tw_df, binary)
 handles = user_text.keys()
 
 # What min_df gives us the right number of words?
@@ -239,12 +225,12 @@ plt.show()
 
 cv = CountVectorizer(analyzer = lambda x: x)
 
-fit_cv(min_df=30)  # was 10
+cv = fit_cv(cv, user_text, handles, min_df=30)  # was 10
 ref_inds = reference_indices()
 
 
-word_user = get_matrix(handles).transpose()
-word_user_rec = get_matrix(rec_handles).transpose()
+word_user = get_matrix(handles, user_text, cv).transpose()
+word_user_rec = get_matrix(rec_handles, user_text, cv).transpose()
 word_sim = get_one_mode(word_user) #SLOW
 word_diff = normalized_manhattan(word_user)
 word_sim_rec = get_one_mode(word_user_rec)
