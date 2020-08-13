@@ -18,8 +18,10 @@ path = ""
 if os.path.basename(os.getcwd()) == "scripts":
     path = "../"
 
-# helpers from topic.py
+# helpers
 exec(open(f"{path}scripts/topic_helpers.py", 'r').read())
+exec(open(f"{path}scripts/graph_helpers.py", 'r').read())
+exec(open(f"{path}scripts/cluster_helpers.py", 'r').read())
     
 tweets = Corpus.load("en_core_web_sm", f"{path}.data/tweets.spacy")
 print("Tweets loaded")
@@ -29,49 +31,51 @@ tw_df = pd.read_pickle(f"{path}.data/tweets.df")
 print("df loaded")
 
 # Vectorize
-unigrams = get_unigram_lists(tweets)
-cv = TfidfVectorizer(analyzer=lambda x: x)
+binary=False
+unigrams = get_unigram_lists(tweets, binary)
+rec_handles = get_recurring_handles(tw_df, 3)
+user_bags = word_bags_by_handle(unigrams, tw_df, binary)
+
+# 100k words w/o min_df
+# 3000 w/ min_df = 30
+cv = CountVectorizer(analyzer=lambda x: x, min_df = 30)
 
 doc_term = cv.fit_transform(unigrams)
 
+doc_term_rec = get_matrix(rec_handles, user_bags, cv)
+
 # reduce dimensionality
-topic = TopicModel("lsa", n_topics=100)
+#topic = TopicModel("lsa", n_topics=100)
 
-topic.fit(doc_term)
-doc_topic = topic.transform(doc_term)
+#topic.fit(doc_term)
+#doc_topic = topic.transform(doc_term)
 
-# spectral clustering
-cospec = SpectralCoclustering(n_clusters=10)
+# co-clustering
+cospec = SpectralCoclustering(n_clusters=6)
 
-cospec.fit(doc_topic)
+# Doesn't work; suspect too sparse? something breaks w/ k-means on eigenvectors
+#cospec.fit(doc_term_rec.todense())
 
-
-def sum_cluster(clusterer, doc=True, n=10):
-    matrix = clusterer.rows_ if doc else clusterer.columns_
-    title = "Docs" if doc else "Topics"
-    clusters = range(len(matrix))
-    doc_indices = np.arange(len(matrix[0]))
-    for c in clusters:
-        # bool indicating cluster membership
-        doc_where = matrix[c]
-        c_indices = doc_indices[doc_where]
-        try:
-            c_indices = np.random.choice(c_indices, size=n, replace=False)
-        except ValueError:
-            pass # tried to sample w/ 'size' > len
-        to_print = f"*** {title} in Cluster {c} ***\n\n"
-        for i,ind in enumerate(c_indices):
-            if doc:
-                thing = tweets[ind]
-            else:
-                thing = list(topic.top_topic_terms(cv.get_feature_names(), top_n=6))[ind]
-            to_print += f"{i}. {thing}\n"
-        print(to_print)
-
+x = np.random.random([100,200])
+cospec.fit(x)
+draw_matrix(cospec, x)
+plt.savefig("visualization/cospec")
 
 # visualize
 
+draw_matrix(cospec, doc_term_rec, cv)
+plt.savefig("visualization/cospec")
 
+# bi-clustering
+
+bispec = SpectralBiclustering(n_clusters=(10,15), method='log')
+
+bispec.fit(doc_term_rec.todense())
+
+_,ax = plt.subplots(tight_layout=True)
+draw_image_matrix(bispec, doc_term_rec, cv, ax)
+plt.savefig("visualization/bispec", dpi=500)
+plt.close('all')
 
 
 
