@@ -176,6 +176,16 @@ def get_louvain_partition(word_word):
         comms[node] = community
     return comms
 
+def print_louvain(sim):
+    global ref_words
+    inds = reference_indices()
+    clusters = get_louvain_partition(sim[inds][:,inds])
+    n_cluster = np.amax(clusters) + 1
+    for c in range(n_cluster):
+        print(f"{c}:")
+        for i in np.where(np.equal(clusters, c))[0]:
+            print(f"\t{ref_words[i]}")
+
 
 # doesn't make sense ATMO
 def _sparsify(word_user):
@@ -249,18 +259,36 @@ def plot_graph(word_sim, word_diff, mds, ax, title, filter=True):
         inds = reference_indices()
         word_sim = word_sim[inds][:,inds]
         word_diff = word_diff[inds][:,inds]
+
+    # transform for better visualization...
+    """
+    try:
+        # sparse
+        word_sim = word_sim.power(3)
+    except AttributeError:
+        # dense
+        word_sim = word_sim ** 3
+    """
+        
     # similarities
-    sim_scale = np.mean(word_sim.data)
+    sim_scale = np.percentile(word_sim.data, 95)
+    # positive diagonal buggers visualization
+    word_sim = np.multiply(word_sim, (1 - np.identity(word_sim.shape[0])))
     # cluster on similarities
     cluster = get_louvain_partition(word_sim)
     # layout
     word_points = mds.fit_transform(word_diff)
+
+    # playin
+    #pos = nx.spring_layout(nx.convert_matrix.from_numpy_matrix(word_sim))
+    #word_points = np.array([pos[i] for i in range(len(ref_words))])
+
     # draw edges
     for inds in np.array(word_sim.nonzero()).transpose():
         # line plot from first to second
         node_coords = word_points[inds]
-        ax.plot(node_coords[:,0], node_coords[:,1], c='gray', zorder=-1,
-                linewidth=word_sim[inds[0], inds[1]]*2/sim_scale)
+        ax.plot(node_coords[:,0], node_coords[:,1], marker=',', c='gray', zorder=-1,
+                linewidth=word_sim[inds[0], inds[1]]/sim_scale)
     # draw nodes
     ax.scatter(word_points[:,0], word_points[:,1], c=cluster, zorder=1)
     for i,w in enumerate(ref_words):
