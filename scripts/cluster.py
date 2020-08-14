@@ -61,22 +61,51 @@ cospec.fit(x)
 draw_matrix(cospec, x)
 plt.savefig("visualization/cospec")
 
-# visualize
-
-draw_matrix(cospec, doc_term_rec, cv)
-plt.savefig("visualization/cospec")
 
 # bi-clustering
 
 bispec = SpectralBiclustering(n_clusters=(10,15), method='log')
 
+# note to self: turning the 100k x 3000 full user-term matrix to dense
+#   gets the process killed
 bispec.fit(doc_term_rec.todense())
 
 _,ax = plt.subplots(tight_layout=True)
-draw_image_matrix(bispec, doc_term_rec, cv, ax)
+draw_image_matrix(bispec, doc_term_rec, cv, ax, lognormalize=True)
 plt.savefig("visualization/bispec", dpi=500)
 plt.close('all')
 
+# inspect a cluster
+b2, d2 = recurse_biclustering(bispec, doc_term_rec.todense(), (9,0))
+_,ax = plt.subplots()
+draw_image_matrix(b2, d2, cv, ax, True)
+plt.savefig("visualization/bispec2", dpi=500)
+plt.close('all')
+
+# try a binary version
+doc_term_bin = doc_term_rec.todense()
+doc_term_bin = np.where(np.greater(doc_term_bin, 1), 1, 1)
+# avoid numerical troubles
+doc_term_bin = doc_term_bin + np.random.normal(0, 1e-10, doc_term_bin.shape)
+
+binary_spec = SpectralBiclustering()
+binary_spec.set_params(**bispec.get_params())
+binary_spec.fit(doc_term_bin)
+
+# image matrix plot
+_,ax = plt.subplots(tight_layout=True)
+draw_image_matrix(binary_spec, doc_term_bin, cv, ax, lognormalize=True)
+plt.savefig("visualization/binary", dpi=500)
+plt.close('all')
+
+# full matrix plot
+draw_matrix(binary_spec, doc_term_bin, lognormalize=True)
+plt.savefig("visualization/binary", dpi=600)
 
 
-
+# get percentiles!
+_,ax = plt.subplots(2, tight_layout=True)
+draw_image_matrix(binary_spec, doc_term_bin, cv, ax[0], lognormalize=True, percentile=1)
+draw_image_matrix(binary_spec, doc_term_bin, cv, ax[1], lognormalize=True, percentile=99)
+plt.savefig("visualization/binary_percent", dpi=700)
+plt.close('all')
